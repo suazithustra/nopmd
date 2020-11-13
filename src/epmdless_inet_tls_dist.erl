@@ -19,7 +19,7 @@
 %%
 
 %%
--module(inet_tls_dist).
+-module(epmdless_inet_tls_dist).
 
 -export([childspecs/0]).
 -export([listen/2, accept/1, accept_connection/5,
@@ -39,9 +39,12 @@
 -include_lib("kernel/include/dist.hrl").
 -include_lib("kernel/include/dist_util.hrl").
 -include_lib("public_key/include/public_key.hrl").
-
--include("ssl_api.hrl").
+-include_lib("ssl/src/ssl_api.hrl").
 -include_lib("kernel/include/logger.hrl").
+
+-ifndef(epmd_dist_low).
+-define(epmd_dist_low, ?ERL_DIST_VER_LOW).
+-endif.
 
 %% -------------------------------------------------------------------------
 
@@ -53,15 +56,7 @@ select(Node) ->
     gen_select(inet_tcp, Node).
 
 gen_select(Driver, Node) ->
-    case dist_util:split_node(Node) of
-        {node,_,Host} ->
-	    case Driver:getaddr(Host) of
-		{ok, _} -> true;
-		_ -> false
-	    end;
-        _ ->
-            false
-    end.
+    epmdless_inet_tcp_dist:gen_select(Driver, Node).
 
 %% ------------------------------------------------------------
 %% Get the address family that this distribution uses
@@ -69,12 +64,12 @@ gen_select(Driver, Node) ->
 address() ->
     gen_address(inet_tcp).
 gen_address(Driver) ->
-    inet_tcp_dist:gen_address(Driver).
+    epmdless_inet_tcp_dist:gen_address(Driver).
 
 %% -------------------------------------------------------------------------
 
 is_node_name(Node) ->
-    dist_util:is_node_name(Node).
+    epmdless_inet_tcp_dist:is_node_name(Node).
 
 %% -------------------------------------------------------------------------
 
@@ -205,7 +200,7 @@ listen(Name, Host) ->
     gen_listen(inet_tcp, Name, Host).
 
 gen_listen(Driver, Name, Host) ->
-    case inet_tcp_dist:gen_listen(Driver, Name, Host) of
+    case epmdless_inet_tcp_dist:gen_listen(Driver, Name, Host) of
         {ok, {Socket, Address, Creation}} ->
             inet:setopts(Socket, [{packet, 4}, {nodelay, true}]),
             {ok, {Socket, Address#net_address{protocol=tls}, Creation}};
@@ -230,17 +225,17 @@ gen_accept(Driver, Listen) ->
 accept_loop(Driver, Listen, Kernel) ->
     case Driver:accept(Listen) of
         {ok, Socket} ->
-	    case check_ip(Driver, Socket) of
+            case check_ip(Driver, Socket) of
                 true ->
                     accept_loop(Driver, Listen, Kernel, Socket);
                 {false,IP} ->
-		    ?LOG_ERROR(
-                      "** Connection attempt from "
-                      "disallowed IP ~w ** ~n", [IP]),
-		    ?shutdown2(no_node, trace({disallowed, IP}))
-	    end;
-	Error ->
-	    exit(trace(Error))
+                    ?LOG_ERROR(
+                            "** Connection attempt from "
+                            "disallowed IP ~w ** ~n", [IP]),
+                    ?shutdown2(no_node, trace({disallowed, IP}))
+            end;
+	    Error ->
+	        exit(trace(Error))
     end.
 
 accept_loop(Driver, Listen, Kernel, Socket) ->
@@ -331,9 +326,13 @@ allowed_hosts(Allowed) ->
 allowed_node_hosts([]) -> [];
 allowed_node_hosts([Node|Allowed]) ->
     case dist_util:split_node(Node) of
-        {node,_,Host} ->
+        {node,_,Authority} ->
+            Split = string:split(Authority, ":", trailing),
+            Host = lists:nth(1, Split),
             [Host|allowed_node_hosts(Allowed)];
-        {host,Host} ->
+        {host,Authority} ->
+            Split = string:split(Authority, ":", trailing),
+            Host = lists:nth(1, Split),
             [Host|allowed_node_hosts(Allowed)];
         _ ->
             allowed_node_hosts(Allowed)
@@ -385,11 +384,11 @@ wait_for_code_server() ->
     %%
     %% So let's avoid that by waiting for the code server to start.
     case whereis(code_server) of
-	undefined ->
-	    timer:sleep(10),
-	    wait_for_code_server();
-	Pid when is_pid(Pid) ->
-	    ok
+        undefined ->
+            timer:sleep(10),
+            wait_for_code_server();
+        Pid when is_pid(Pid) ->
+            ok
     end.
 
 %% -------------------------------------------------------------------------
@@ -473,9 +472,13 @@ allowed_nodes(PeerCert, [], PeerIP) ->
     end;
 allowed_nodes(PeerCert, [Node|Allowed], PeerIP) ->
     case dist_util:split_node(Node) of
-        {node,_,Host} ->
+        {node,_,Authority} ->
+            Split = string:split(Authority, ":", trailing),
+            Host = lists:nth(1, Split),
             allowed_nodes(PeerCert, Allowed, PeerIP, Node, Host);
-        {host,Host} ->
+        {host,Authority} ->
+            Split = string:split(Authority, ":", trailing),
+            Host = lists:nth(1, Split),
             allowed_nodes(PeerCert, Allowed, PeerIP, Node, Host);
         _ ->
             allowed_nodes(PeerCert, Allowed, PeerIP)
@@ -509,44 +512,34 @@ setup_fun(Driver, Kernel, Node, Type, MyNode, LongOrShortNames, SetupTime) ->
 
 -spec do_setup(_,_,_,_,_,_,_) -> no_return().
 do_setup(Driver, Kernel, Node, Type, MyNode, LongOrShortNames, SetupTime) ->
-    {Name, Address} = split_node(Driver, Node, LongOrShortNames),
-    ErlEpmd = net_kernel:epmd_module(),
-    {ARMod, ARFun} = get_address_resolver(ErlEpmd, Driver),
+    {_, Address, TcpPort} = split_node(Driver, Node, LongOrShortNames),
+    AddressFamily = Driver:family(),
+    Version = ?epmd_dist_low,
     Timer = trace(dist_util:start_timer(SetupTime)),
-    case ARMod:ARFun(Name,Address,Driver:family()) of
-    {ok, Ip, TcpPort, Version} ->
-        do_setup_connect(Driver, Kernel, Node, Address, Ip, TcpPort, Version, Type, MyNode, Timer);
-	{ok, Ip} ->
-	    case ErlEpmd:port_please(Name, Ip) of
-		{port, TcpPort, Version} ->
-                do_setup_connect(Driver, Kernel, Node, Address, Ip, TcpPort, Version, Type, MyNode, Timer);
-		Other ->
-		    ?shutdown2(
-                       Node,
-                       trace(
-                         {port_please_failed, ErlEpmd, Name, Ip, Other}))
-	    end;
-	Other ->
-	    ?shutdown2(
-               Node,
-               trace({getaddr_failed, Driver, Address, Other}))
+    case inet:getaddr(Address, AddressFamily) of
+        {ok, Ip} ->
+            do_setup_connect(Driver, Kernel, Node, Address, Ip, list_to_integer(TcpPort), Version, Type, MyNode, Timer);
+        Other ->
+            ?shutdown2(
+                Node,
+                trace({getaddr_failed, Driver, Address, Other}))
     end.
 
--spec do_setup_connect(_,_,_,_,_,_,_,_,_,_) -> no_return().
 
+-spec do_setup_connect(_,_,_,_,_,_,_,_,_,_) -> no_return().
 do_setup_connect(Driver, Kernel, Node, Address, Ip, TcpPort, Version, Type, MyNode, Timer) ->
     Opts =  trace(connect_options(get_ssl_options(client))),
     dist_util:reset_timer(Timer),
     case ssl:connect(
-        Address, TcpPort,
-        [binary, {active, false}, {packet, 4},
+            Address, TcpPort,
+            [binary, {active, false}, {packet, 4},
             Driver:family(), {nodelay, true}] ++ Opts,
-        net_kernel:connecttime()) of
-    {ok, #sslsocket{pid = [_, DistCtrl| _]} = SslSocket} ->
+            net_kernel:connecttime()) of
+        {ok, #sslsocket{pid = [_, DistCtrl| _]} = SslSocket} ->
             _ = monitor_pid(DistCtrl),
             ok = ssl:controlling_process(SslSocket, self()),
             HSData0 = hs_data_common(SslSocket),
-        HSData =
+            HSData =
                 HSData0#hs_data{
                 kernel_pid = Kernel,
                 other_node = Node,
@@ -557,14 +550,14 @@ do_setup_connect(Driver, Kernel, Node, Address, Ip, TcpPort, Version, Type, MyNo
                 other_version = Version,
                 request_type = Type},
             link(DistCtrl),
-    dist_util:handshake_we_started(trace(HSData));
-    Other ->
-    %% Other Node may have closed since
-    %% port_please !
-    ?shutdown2(
-            Node,
-            trace(
-                {ssl_connect_failed, Ip, TcpPort, Other}))
+            dist_util:handshake_we_started(trace(HSData));
+        Other ->
+            %% Other Node may have closed since
+            %% port_please !
+            ?shutdown2(
+                Node,
+                trace(
+                    {ssl_connect_failed, Ip, TcpPort, Other}))
     end.
 
 close(Socket) ->
@@ -575,51 +568,40 @@ gen_close(Driver, Socket) ->
 
 
 %% ------------------------------------------------------------
-%% Determine if EPMD module supports address resolving. Default
-%% is to use inet_tcp:getaddr/2.
-%% ------------------------------------------------------------
-get_address_resolver(EpmdModule, _Driver) ->
-    case erlang:function_exported(EpmdModule, address_please, 3) of
-        true -> {EpmdModule, address_please};
-        _    -> {erl_epmd, address_please}
-    end.
-
-%% ------------------------------------------------------------
 %% Do only accept new connection attempts from nodes at our
 %% own LAN, if the check_ip environment parameter is true.
 %% ------------------------------------------------------------
 check_ip(Driver, Socket) ->
     case application:get_env(check_ip) of
-	{ok, true} ->
-	    case get_ifs(Socket) of
-		{ok, IFs, IP} ->
-		    check_ip(Driver, IFs, IP);
-		Other ->
-		    ?shutdown2(
-                       no_node, trace({check_ip_failed, Socket, Other}))
-	    end;
-	_ ->
-	    true
+        {ok, true} ->
+            case get_ifs(Socket) of
+                {ok, IFs, IP} ->
+                    check_ip(Driver, IFs, IP);
+                Other ->
+                    ?shutdown2(no_node, trace({check_ip_failed, Socket, Other}))
+            end;
+        _ ->
+            true
     end.
 
 check_ip(Driver, [{OwnIP, _, Netmask}|IFs], PeerIP) ->
     case {Driver:mask(Netmask, PeerIP), Driver:mask(Netmask, OwnIP)} of
-	{M, M} -> true;
-	_      -> check_ip(IFs, PeerIP)
+        {M, M} -> true;
+        _      -> check_ip(IFs, PeerIP)
     end;
 check_ip(_Driver, [], PeerIP) ->
     {false, PeerIP}.
 
 get_ifs(Socket) ->
     case inet:peername(Socket) of
-	{ok, {IP, _}} ->
-            %% XXX this is seriously broken for IPv6
-	    case inet:getif(Socket) of
-		{ok, IFs} -> {ok, IFs, IP};
-		Error     -> Error
-	    end;
-	Error ->
-	    Error
+        {ok, {IP, _}} ->
+                %% XXX this is seriously broken for IPv6
+            case inet:getif(Socket) of
+            {ok, IFs} -> {ok, IFs, IP};
+            Error     -> Error
+            end;
+        Error ->
+            Error
     end.
 
 
@@ -701,66 +683,73 @@ parse_rdn([_|Rdn]) ->
 %% If Node is illegal terminate the connection setup!!
 split_node(Driver, Node, LongOrShortNames) ->
     case dist_util:split_node(Node) of
-        {node, Name, Host} ->
-	    check_node(Driver, Node, Name, Host, LongOrShortNames);
-	{host, _} ->
-	    ?LOG_ERROR(
-              "** Nodename ~p illegal, no '@' character **~n",
-              [Node]),
-	    ?shutdown2(Node, trace({illegal_node_n@me, Node}));
-	_ ->
-	    ?LOG_ERROR(
-              "** Nodename ~p illegal **~n", [Node]),
-	    ?shutdown2(Node, trace({illegal_node_name, Node}))
+        {node, Name, Authority} ->
+	        check_node(Driver, Node, Name, Authority, LongOrShortNames);
+        {host, _} ->
+            ?LOG_ERROR(
+                "** Nodename ~p illegal, no '@' character **~n",
+                [Node]),
+            ?shutdown2(Node, trace({illegal_node_n@me, Node}));
+        _ ->
+            ?LOG_ERROR(
+                "** Nodename ~p illegal **~n", [Node]),
+            ?shutdown2(Node, trace({illegal_node_name, Node}))
     end.
 
-check_node(Driver, Node, Name, Host, LongOrShortNames) ->
-    case string:split(Host, ".", all) of
-	[_] when LongOrShortNames =:= longnames ->
-	    case Driver:parse_address(Host) of
-		{ok, _} ->
-		    {Name, Host};
-		_ ->
-		    ?LOG_ERROR(
-                      "** System running to use "
-                      "fully qualified hostnames **~n"
-                      "** Hostname ~s is illegal **~n",
-                      [Host]),
-		    ?shutdown2(Node, trace({not_longnames, Host}))
-	    end;
-	[_,_|_] when LongOrShortNames =:= shortnames ->
-	    ?LOG_ERROR(
-              "** System NOT running to use "
-              "fully qualified hostnames **~n"
-              "** Hostname ~s is illegal **~n",
-              [Host]),
-	    ?shutdown2(Node, trace({not_shortnames, Host}));
-	_ ->
-	    {Name, Host}
+check_node(Driver, Node, Name, Authority, LongOrShortNames) ->
+    case string:split(Authority, ":", trailing) of
+        [_] ->
+            ?LOG_ERROR(
+            "** Nodename ~p illegal, no ':' character **~n", [Node]),
+            ?shutdown2(Node, trace({illegal_node_name, Node}));
+        [Host, Port] ->
+            case string:split(Host, ".", all) of
+                [_] when LongOrShortNames =:= longnames ->
+                    case Driver:parse_address(Host) of
+                        {ok, _} ->
+                            {Name, Host, Port};
+                        _ ->
+                            ?LOG_ERROR(
+                                    "** System running to use "
+                                    "fully qualified hostnames **~n"
+                                    "** Hostname ~s is illegal **~n",
+                                    [Host]),
+                            ?shutdown2(Node, trace({not_longnames, Host}))
+                    end;
+                [_,_|_] when LongOrShortNames =:= shortnames ->
+                    ?LOG_ERROR(
+                        "** System NOT running to use "
+                        "fully qualified hostnames **~n"
+                        "** Hostname ~s is illegal **~n",
+                        [Host]),
+                    ?shutdown2(Node, trace({not_shortnames, Host}));
+                _ ->
+                    {Name, Host, Port}
+            end
     end.
 
 %% -------------------------------------------------------------------------
 
 connect_options(Opts) ->
     case application:get_env(kernel, inet_dist_connect_options) of
-	{ok,ConnectOpts} ->
-	    lists:ukeysort(1, ConnectOpts ++ Opts);
-	_ ->
-	    Opts
+        {ok,ConnectOpts} ->
+            lists:ukeysort(1, ConnectOpts ++ Opts);
+        _ ->
+            Opts
     end.
 
 %% we may not always want the nodelay behaviour
 %% for performance reasons
 nodelay() ->
     case application:get_env(kernel, dist_nodelay) of
-	undefined ->
-	    {nodelay, true};
-	{ok, true} ->
-	    {nodelay, true};
-	{ok, false} ->
-	    {nodelay, false};
-	_ ->
-	    {nodelay, true}
+        undefined ->
+            {nodelay, true};
+        {ok, true} ->
+            {nodelay, true};
+        {ok, false} ->
+            {nodelay, false};
+        _ ->
+            {nodelay, true}
     end.
 
 
@@ -777,10 +766,10 @@ get_ssl_options(Type) ->
 
 get_ssl_dist_arguments(Type) ->
     case init:get_argument(ssl_dist_opt) of
-	{ok, Args} ->
-	    [{erl_dist, true}, {versions, ['tlsv1.2']} | ssl_options(Type, lists:append(Args))];
-	_ ->
-	    [{erl_dist, true}, {versions, ['tlsv1.2']}]
+        {ok, Args} ->
+            [{erl_dist, true}, {versions, ['tlsv1.2']} | ssl_options(Type, lists:append(Args))];
+        _ ->
+            [{erl_dist, true}, {versions, ['tlsv1.2']}]
     end.
 
 
@@ -840,11 +829,11 @@ termify(String) when is_list(String) ->
 
 verify_fun(Value) ->
     case termify(Value) of
-	{Mod, Func, State} when is_atom(Mod), is_atom(Func) ->
-	    Fun = fun Mod:Func/3,
-	    {Fun, State};
-	_ ->
-	    error(malformed_ssl_dist_opt, [Value])
+        {Mod, Func, State} when is_atom(Mod), is_atom(Func) ->
+            Fun = fun Mod:Func/3,
+            {Fun, State};
+        _ ->
+            error(malformed_ssl_dist_opt, [Value])
     end.
 
 %% -------------------------------------------------------------------------
