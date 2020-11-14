@@ -19,7 +19,7 @@
 %%
 
 %%
--module(epmdless_inet_tls_dist).
+-module(nopmd_inet_tls_dist).
 
 -export([childspecs/0]).
 -export([listen/2, accept/1, accept_connection/5,
@@ -56,7 +56,7 @@ select(Node) ->
     gen_select(inet_tcp, Node).
 
 gen_select(Driver, Node) ->
-    epmdless_inet_tcp_dist:gen_select(Driver, Node).
+    nopmd_inet_tcp_dist:gen_select(Driver, Node).
 
 %% ------------------------------------------------------------
 %% Get the address family that this distribution uses
@@ -64,12 +64,12 @@ gen_select(Driver, Node) ->
 address() ->
     gen_address(inet_tcp).
 gen_address(Driver) ->
-    epmdless_inet_tcp_dist:gen_address(Driver).
+    nopmd_inet_tcp_dist:gen_address(Driver).
 
 %% -------------------------------------------------------------------------
 
 is_node_name(Node) ->
-    epmdless_inet_tcp_dist:is_node_name(Node).
+    nopmd_inet_tcp_dist:is_node_name(Node).
 
 %% -------------------------------------------------------------------------
 
@@ -200,7 +200,7 @@ listen(Name, Host) ->
     gen_listen(inet_tcp, Name, Host).
 
 gen_listen(Driver, Name, Host) ->
-    case epmdless_inet_tcp_dist:gen_listen(Driver, Name, Host) of
+    case nopmd_inet_tcp_dist:gen_listen(Driver, Name, Host) of
         {ok, {Socket, Address, Creation}} ->
             inet:setopts(Socket, [{packet, 4}, {nodelay, true}]),
             {ok, {Socket, Address#net_address{protocol=tls}, Creation}};

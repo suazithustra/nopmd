@@ -17,7 +17,7 @@
 %%
 %% %CopyrightEnd%
 %%
--module(epmdless_inet_tcp_dist).
+-module(nopmd_inet_tcp_dist).
 
 %% Handles the connection setup phase with other Erlang nodes.
 

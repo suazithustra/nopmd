@@ -17,7 +17,7 @@
 %%
 %% %CopyrightEnd%
 %%
--module(epmdless_inet6_tcp_dist).
+-module(nopmd_inet6_tcp_dist).
 
 %% Handles the connection setup phase with other Erlang nodes.
 
@@ -32,7 +32,7 @@
 %% ------------------------------------------------------------
 
 select(Node) ->
-    epmdless_inet_tcp_dist:gen_select(inet6_tcp, Node).
+    nopmd_inet_tcp_dist:gen_select(inet6_tcp, Node).
 
 %% ------------------------------------------------------------
 %%  Get address family
@@ -40,7 +40,7 @@ select(Node) ->
 %% ------------------------------------------------------------
 
 address() ->
-    epmdless_inet_tcp_dist:gen_address(inet6_tcp).
+    nopmd_inet_tcp_dist:gen_address(inet6_tcp).
 
 %% ------------------------------------------------------------
 %% Create the listen socket, i.e. the port that this erlang
@@ -48,14 +48,14 @@ address() ->
 %% ------------------------------------------------------------
 
 listen(Name, Host) ->
-    epmdless_inet_tcp_dist:gen_listen(inet6_tcp, Name, Host).
+    nopmd_inet_tcp_dist:gen_listen(inet6_tcp, Name, Host).
 
 %% ------------------------------------------------------------
 %% Accepts new connection attempts from other Erlang nodes.
 %% ------------------------------------------------------------
 
 accept(Listen) ->
-    epmdless_inet_tcp_dist:gen_accept(inet6_tcp, Listen).
+    nopmd_inet_tcp_dist:gen_accept(inet6_tcp, Listen).
 
 %% ------------------------------------------------------------
 %% Accepts a new connection attempt from another Erlang node.
@@ -63,7 +63,7 @@ accept(Listen) ->
 %% ------------------------------------------------------------
 
 accept_connection(AcceptPid, Socket, MyNode, Allowed, SetupTime) ->
-    epmdless_inet_tcp_dist:gen_accept_connection(inet6_tcp, AcceptPid, Socket, MyNode, Allowed, SetupTime).
+    nopmd_inet_tcp_dist:gen_accept_connection(inet6_tcp, AcceptPid, Socket, MyNode, Allowed, SetupTime).
 
 %% ------------------------------------------------------------
 %% Setup a new connection to another Erlang node.
@@ -71,7 +71,7 @@ accept_connection(AcceptPid, Socket, MyNode, Allowed, SetupTime) ->
 %% ------------------------------------------------------------
 
 setup(Node, Type, MyNode, LongOrShortNames,SetupTime) ->
-    epmdless_inet_tcp_dist:gen_setup(inet6_tcp, Node, Type, MyNode, LongOrShortNames, SetupTime).
+    nopmd_inet_tcp_dist:gen_setup(inet6_tcp, Node, Type, MyNode, LongOrShortNames, SetupTime).
 
 %%
 %% Close a socket.
@@ -80,10 +80,10 @@ close(Socket) ->
     inet6_tcp:close(Socket).
 
 is_node_name(Node) when is_atom(Node) ->
-    epmdless_inet_tcp_dist:is_node_name(Node).
+    nopmd_inet_tcp_dist:is_node_name(Node).
 
 setopts(S, Opts) ->
-    epmdless_inet_tcp_dist:setopts(S, Opts).
+    nopmd_inet_tcp_dist:setopts(S, Opts).
 
 getopts(S, Opts) ->
-    epmdless_inet_tcp_dist:getopts(S, Opts).
+    nopmd_inet_tcp_dist:getopts(S, Opts).

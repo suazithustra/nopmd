@@ -19,32 +19,32 @@
 %%
 
 %%
--module(epmdless_inet6_tls_dist).
+-module(nopmd_inet6_tls_dist).
 
 -export([childspecs/0]).
 -export([listen/2, accept/1, accept_connection/5,
 	 setup/5, close/1, select/1, address/0]).
 
 childspecs() ->
-    epmdless_inet_tls_dist:childspecs().
+    nopmd_inet_tls_dist:childspecs().
 
 select(Node) ->
-    epmdless_inet_tls_dist:gen_select(inet6_tcp, Node).
+    nopmd_inet_tls_dist:gen_select(inet6_tcp, Node).
 
 address() ->
-    epmdless_inet_tls_dist:gen_address(inet6_tcp).
+    nopmd_inet_tls_dist:gen_address(inet6_tcp).
 
 listen(Name, Host) ->
-    epmdless_inet_tls_dist:gen_listen(inet6_tcp, Name, Host).
+    nopmd_inet_tls_dist:gen_listen(inet6_tcp, Name, Host).
 
 accept(Listen) ->
-    epmdless_inet_tls_dist:gen_accept(inet6_tcp, Listen).
+    nopmd_inet_tls_dist:gen_accept(inet6_tcp, Listen).
 
 accept_connection(AcceptPid, Socket, MyNode, Allowed, SetupTime) ->
-    epmdless_inet_tls_dist:gen_accept_connection(inet6_tcp, AcceptPid, Socket, MyNode, Allowed, SetupTime).
+    nopmd_inet_tls_dist:gen_accept_connection(inet6_tcp, AcceptPid, Socket, MyNode, Allowed, SetupTime).
 
 setup(Node, Type, MyNode, LongOrShortNames,SetupTime) ->
-    epmdless_inet_tls_dist:gen_setup(inet6_tcp, Node, Type, MyNode, LongOrShortNames,SetupTime).
+    nopmd_inet_tls_dist:gen_setup(inet6_tcp, Node, Type, MyNode, LongOrShortNames,SetupTime).
 
 close(Socket) ->
-    epmdless_inet_tls_dist:gen_close(inet6_tcp, Socket).
+    nopmd_inet_tls_dist:gen_close(inet6_tcp, Socket).
